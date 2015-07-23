@@ -1,0 +1,540 @@
+<link rel='import' href='../polymer/polymer.html'> 
+
+<!--
+A line chart that the user draws to guess the value.
+
+##### Example
+
+    <lens-viz-draw></lens-viz-draw>
+
+@demo
+-->
+
+<dom-module name='lens-viz-draw' attributes='input numberOfDataPoints'>
+
+  <template>
+    <link rel='stylesheet' href='lens-viz-draw.css'>
+
+    <div id='lens-viz-container' style='width:100%; height:100%'>
+      <svg id='chart'></svg> 
+    </div>
+
+  </template>
+
+</dom-module>
+
+
+<script type='text/javascript' src='../d3/d3.min.js'></script>
+
+<script>
+  Polymer({
+
+    is: 'lens-viz-draw',
+
+    properties: {
+
+      /**
+       *  Input defaults to an array of objects with Label and Value
+       *  @type Array
+       */
+      input: {
+        value: [],
+        type: Array,
+        observer: '_inputChanged'
+      },
+
+      /**
+       *  How many data points the user must draw before the data appears.
+       *  By default, this is determined by input data.
+       */
+      numberOfDataPoints: {
+        value: null,
+        type: Number
+      },
+
+      /**
+       *  Color for the actual data
+       *  @type String
+       */
+      dataColor: {
+        value: '#0000ff',
+        type: String
+      },
+
+      /**
+       *  Color for the user's guess (drawn data)
+       *  @type {Object}
+       */
+      drawColor: {
+        value: 'orange',
+        type: String
+      },
+
+      /**
+       *  Line interpolation style
+       */
+      lineStyle: {
+        value: 'cardinal',
+        type: String
+      },
+
+      /**
+       *  Is the user drawing?
+       */
+      _drawing: {
+        value: false,
+        type: Boolean
+      },
+
+      /**
+       *  Dimensions
+       *  @type {Object}
+       */
+      _dims: {
+        value: {},
+        type: Object
+      }
+
+    },
+
+
+    /**
+     *  The svg chart area, an html element.
+     */
+    _svg: undefined,
+
+    /**
+     *  [_ptdata description]
+     *  @type {Array}
+     */
+    _ptdata: [],
+
+
+    attached: function() {
+      var self = this;
+
+      // // domReady
+      // self.async(function() {
+      //   self._setupElement();
+      //   self._setupDrawing();
+      // }, 1);
+
+
+      // Setup elements and sizes
+      // self._setupElements();
+      // self._setElementSizes();
+
+      // self._populatePtdata();
+    },
+
+    // via http://eyeseast.github.io/visible-data/2013/08/28/responsive-charts-with-d3/
+    _setupElement: function() {
+      var self = this;
+      var data = self.input;
+      var svg = self._svg = d3.select(self.$.chart);
+
+      var bcRect = svg.node().parentNode.getBoundingClientRect()
+      var margin = {top: 30, right: 10, bottom: 30, left: 10},
+          padding = 10,
+          outerWidth = parseInt(bcRect.width, 10),
+          outerHeight = parseInt(bcRect.height, 10),
+          innerWidth = outerWidth - margin.left - margin.right,
+          innerHeight = outerHeight - margin.top - margin.bottom,
+          width = innerWidth - padding - padding,
+          height = innerHeight - padding - padding,
+          percent = d3.format('%');
+
+      // save for later...
+      self._dims.margin = margin;
+      self._dims.width = width;
+      self._dims.height = height;
+      self._dims.padding = padding;
+
+      svg.attr('width', outerWidth)
+      svg.attr('height', outerHeight)
+
+      self._revealText('Draw your best guess');
+
+      // Set y-scale
+      var y = self.y = d3.scale.linear().domain([self.maxValue, self.minValue]).range([margin.top, 
+              (height-(margin.top + margin.bottom))]);
+      
+      // Set x-scale
+      var x = self.x = d3.scale.ordinal().rangePoints([margin.left, width], 0);
+      self.x.domain(self.input.map(function(d,i){return d.label}));
+
+      // x index maps an x point to an index, for drawing
+      self.xIndex = d3.scale.linear().domain([margin.left, width]).range([0, self.numberOfDataPoints -1]).clamp(true);
+
+
+      var xAxis = d3.svg.axis()
+          .scale(x)
+          .tickSize(0)
+          .orient('bottom');
+
+      var yAxis = d3.svg.axis()
+          .scale(y)
+          .orient('left');
+
+      var g = self.g = svg.append('g')
+        .attr('transform', 'translate('+margin.left + ',' + margin.top + ')');
+
+      g.append('g')
+          .attr('class', 'axis xAxis fill-foreground')
+          .attr('transform', 'translate(' +padding +', '+ (height-2*padding) +')')
+          .call(xAxis)
+            .selectAll('text')
+              .style('text-anchor', 'end')
+              .attr('dx', '-.8em')
+              .attr('dy', '.15em')
+              .attr('transform', function(d) {
+                return 'rotate(-70)'
+              });
+
+      g.append('g')
+          .attr('class', 'y yAxis')
+          .attr('transform', 'translate('+ (width + padding) +', 0)')
+          .call(yAxis);
+
+
+      // line path
+      self.linePath = g.append('path').data(data)
+          .attr('class', 'line data0 no-fill')
+          .attr('opacity', 0);
+
+      // Line data, ending state (raise style animation)
+      self.line = d3.svg.line()
+        .x(function(d,i) { return x(d.label); })
+        .y(function(d) { return y(d.value); })
+        .interpolate(self.lineStyle);
+
+      // data points
+      self.datapoints = g.selectAll('.datapoint')
+        .data(data)
+        .enter().append('g')
+        .attr('class', 'datapoint data0')
+        .attr('cx', function(d,i) { return  x(d.label); })
+        .attr('cy', function(d) { return y(d.value); });
+
+      self.circles = self.datapoints
+        .append('circle')
+        .attr('class', 'circle data0')
+          .attr('r', 0)
+          .style('fill', self.dataColor)
+          .style('stroke', self.dataColor)
+          .attr('cx', function(d,i) { return  x(d.label); })
+          .attr('cy', function(d) { return y(d.value); });
+
+      self.circleAreas = self.datapoints
+        .append('circle')
+        .attr('class', 'circleArea')
+        .attr('r', 25)
+        .attr('opacity', 0)
+        .attr('cx', function(d,i) { return  x(d.label); })
+        .attr('cy', function(d) { return y(d.value); });
+
+    },
+
+
+    /**
+     *  reveal the actual data
+     *  
+     *  @method _reveal
+     *  @private
+     */
+    _reveal: function() {
+      var self = this;
+      var data = self.input;
+
+      // animate
+      self.linePath
+        .transition()
+          .duration(900)
+          .attr('d', self.line(data))
+          .attr('opacity', 1)
+          .style('stroke', self.dataColor);
+
+      // Show datapoints
+      self.circles
+        .transition().delay(650).duration(500)
+          .attr('r', 5);
+    },
+
+    /**
+     *  Observer for self.input. Recalculates the min/max and 
+     *  
+     *  @method _inputChanged
+     *  @private
+     */
+    _inputChanged: function() {
+      var self = this;
+
+      // set numberOfDataPoints to draw based on input data
+      self.numberOfDataPoints = self.numberOfDataPoints || self.input.length;
+
+      self._findMinMax();
+
+      self._clear();
+
+      // domReady
+      self.async(function() {
+        self._setupElement();
+        self._setupDrawing();
+      }, 1);
+
+    },
+
+    _findMinMax: function() {
+      var self = this;
+
+      // find min and max values
+      var values = self.input.map(function(i, e) {
+        return i.value});
+      self.maxValue = Math.max.apply(Math, values);
+      self.minValue = Math.min.apply(Math, values);
+
+    },
+
+
+    // =============
+    // drawing stuff
+    // =============
+
+    /**
+     *  Set up the drawArea, append it to an SVG,
+     *  and add event listeners to start and end drawing.
+     *  
+     *  @private
+     */
+    _setupDrawing: function() {
+      var self = this;
+
+      // draw area g
+      self.drawArea = self._svg.append('g')
+        .attr('class', 'drawarea');
+
+      self.drawnLine = d3.svg.line()
+        .interpolate(self.lineStyle)
+        .x(function(d, i) { return d[0]; })
+        .y(function(d, i) { return d[1]; });
+
+      self.drawnPath = self._svg.select('g')
+        .append('path');
+
+
+      // TO DO: d3.behavior.drag() would be cleaner but throws
+      // Uncaught TypeError: n.getBoundingClientRect is not a function
+      self._svg.on('mousedown', function(e) {self._startDraw()});
+      self._svg.on('mouseup', function(e) {self._endDraw()});
+      self._svg.on('mouseleave', function(e) {self._endDraw()});
+
+    },
+
+    /**
+     *  start drawing on mousedown
+     *  
+     *  @private
+     */
+    _startDraw: function() {
+      var self = this;
+      self._clearText();
+      self._drawing = true;
+      self._drawPoints();
+      self._svg.on('mousemove', self._drawPoints.bind(self));
+    },
+
+    /**
+     *  end draw on mouseup or mouseleave
+     *  
+     *  @private
+     */
+    _endDraw: function() {
+      var self = this;
+      self._drawing = false;
+      self._svg.on('mousemove', '');
+    },
+
+    /**
+     *  Display all of the points (guesspoints) that the user has drawn so far,
+     *  and draw lines between them. If all points have been drawn, reveal the real data.
+     *  
+     *  @private
+     */
+    _drawPoints: function() {
+      var self = this;
+      var pt = d3.mouse(self);
+
+      var pointIndex = Math.round( self.xIndex(pt[0]) );
+
+      var distBetwPoints = (self._dims.width - self._dims.margin.left) / (self.numberOfDataPoints - 1);
+
+      var xPos = pointIndex * distBetwPoints + self._dims.margin.left + self._dims.padding;
+
+      // limit range of xPos to account for dims.padding and margin
+      var yClamp = d3.scale.linear()
+        .domain([self._dims.margin.top + self._dims.padding, self._dims.height - self._dims.padding])
+        .range([self._dims.margin.top + self._dims.padding, self._dims.height - self._dims.padding])
+        .clamp(true);
+
+      var newPoint = [xPos, yClamp( pt[1] )];
+      self._ptdata[pointIndex] = newPoint;
+
+      // only draw points if they are defined
+      var pointsToDraw = self._ptdata.filter(function(i, e) {
+        return i;
+      });
+
+      // clear drawnPath before redrawing it
+      self.drawnPath.remove();
+
+      self.drawnPath = self.drawArea
+        .selectAll('.pathPoints')
+        .data([pointsToDraw])
+        .enter()
+        .append('path')
+          .attr('class', 'line guess no-fill')
+          .attr('d', self.drawnLine)
+          .style('stroke', self.drawColor);
+
+      if (self.guesspoints) {
+        self.guesspoints.remove();
+      }
+
+      self.guesspoints = self.drawArea
+        .selectAll('.guesspoints')
+        .data(pointsToDraw)
+        .enter().append('circle')
+          .attr('class', 'guesspoints')
+          .attr('r', 5)
+          .attr('fill', self.drawColor)
+          .attr('cx', function(d, i) { return d[0] })
+          .attr('cy', function(d, i) { return d[1] });
+
+      // if all the points have been drawn, animate and calculate distance / score
+      if (pointsToDraw.length === self.numberOfDataPoints) {
+        self._reveal();
+
+        var guessPoints = self.drawArea.selectAll('.guesspoints');
+        var diff = self._calculateDistanceBetweenCurves(self.circles, guessPoints);
+        self._revealText('You were off by ' + diff.toFixed(2), 30, 30, 'left');
+      }
+    },
+
+    // TO DO:
+    // highlight the error area
+
+    /**
+     *  Calculate the distance between two datasets.
+     *  Accepts two arrays of d3 selections / SVG elements that have cx and cy attributes
+     *  
+     *  @param   {Array<SVGElements>} orig  Array of SVG elements with cx and cy attributes (i.e. circles)
+     *  @param   {Array<SVGElements>} drawn Array of SVG elements with cx and cy attributes (i.e. circles)
+     *
+     *  @return {Number} diff   The difference between the two paths
+     *  @private
+     */
+    _calculateDistanceBetweenCurves: function(orig, drawn) {
+      var self = this;
+      var a = orig[0];
+      var b = drawn[0];
+      var len = a.length;
+
+      var diffSum = 0;
+      var diffCount = 0;
+      var diff = 0;
+
+      for (var i = 0; i < len; i++) {
+        var aY = Number( a[i].getAttribute('cy') ) + self._dims.margin.top;
+        var bY = Number( b[i].getAttribute('cy') );
+        var y = self.y.invert;
+        diffSum += Math.pow( y(aY) - y(bY), 2);
+        diffCount++;
+      }
+
+      // root mean square
+      diff = Math.sqrt( diffSum / diffCount );
+
+      return diff;
+
+    },
+
+    /**
+     *  Remove all SVG data (actual data, drawn data, and text)
+     *  
+     *  @private
+     */
+    _clear: function() {
+      var self = this;
+      self._ptdata = [];
+      self._clearText();
+      if (self.g) self.g.remove();
+      if (self.drawArea) self.drawArea.remove();
+    },
+
+    /**
+     *  Fade in text to display on the middle of the SVG
+     *  
+     *  @param   {String} txt Some text to display
+     *  @param   {Number} x x position of the text (optional)
+     *  @param   {Number} y y position of the text (optional)
+     *  @param   {String} [anchor] anchor text position to 'left' 'right or 'middle' (optional)
+     *  
+     *  @private
+     */
+    _revealText: function(txt, x, y, anchor) {
+      var self = this;
+      var _x = x || self._dims.width/2;
+      var _y = y || self._dims.height/2;
+      var _anchor = anchor || 'middle';
+
+      var msg = d3.select('#msg');
+
+      if (!msg[0][0]) {
+        // init text
+        self.msg = self._svg.append('text')
+          .attr('id', 'msg')
+          .attr('x', _x)
+          .attr('y', _y)
+          .attr('text-anchor', _anchor)
+          .attr('opacity', 0)
+      }
+
+      self.msg.text( txt )
+        .transition()
+          .duration(900)
+          .attr('opacity', 1);
+    },
+
+    /**
+     *  Fade out any text from the middle of the SVG
+     *  
+     *  @private
+     */
+    _clearText: function() {
+      var self = this;
+
+      var msg = d3.select('#msg');
+      if (msg[0] === null) {
+        return;
+      }
+
+      if (msg) {
+        msg.transition()
+          .duration(900)
+          .attr('opacity', 0)
+          .remove();
+      }
+
+    },
+
+    /**
+     *  Resize element
+     */
+    resize: function() {
+      var self = this;
+      self._clear();
+      self._setupElement();
+    },
+
+  });
+</script>
