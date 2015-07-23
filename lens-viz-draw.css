@@ -15,5 +15,11 @@
 .tip {
   font-weight: 400;
 }
-
+.guess {
+  stroke-dasharray: 5,5;
+}
+.line {
+  stroke-width: 3px;
+  fill: none;
+}
 svg text::selection { background: none; }

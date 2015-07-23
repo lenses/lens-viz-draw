@@ -252,9 +252,6 @@ A line chart that the user draws to guess the value.
           .duration(900)
           .attr('d', self.line(data))
           .attr('opacity', 1)
-          .attr('class', 'line data0 no-fill')
-          .attr('stroke-width', '3')
-          .style('fill', 'none')
           .style('stroke', self.dataColor);
 
       // Show datapoints
@@ -395,11 +392,9 @@ A line chart that the user draws to guess the value.
         .data([pointsToDraw])
         .enter()
         .append('path')
-          .attr('class', 'line data0 no-fill')
+          .attr('class', 'line guess no-fill')
           .attr('d', self.drawnLine)
-          .style('stroke', self.drawColor)
-          .attr('stroke-width', '3')
-          .attr('fill', 'none');
+          .style('stroke', self.drawColor);
 
       if (self.guesspoints) {
         self.guesspoints.remove();
